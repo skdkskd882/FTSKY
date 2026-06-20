@@ -1,54 +1,41 @@
--- [[ RIVALS: GOD-TIER OVERRIDE ENGINE ]] --
+-- [[ GOD-MODE: INTERNAL ENGINE OVERRIDE ]] --
 
-local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
--- [강화된 설정]
-getgenv().GodMode = {
-    SilentAim = true,
-    Prediction = true, -- 적의 이동속도를 계산하여 예측샷
-    HitboxExpansion = 10, -- 히트박스 최대 확장
-    AutoWallCheck = false -- 벽 무시 여부 (조심해서 사용)
-}
-
--- [탄도학 강제 수정 엔진]
+-- [1. 통신 루프 차단 및 데이터 주입]
+-- 서버가 요청하는 유효성 검사를 무력화하고, 
+-- 클라이언트가 원하는 데이터만 서버에 강제 주입합니다.
 local mt = getrawmetatable(game)
 setreadonly(mt, false)
-local old = mt.__namecall
+local oldNamecall = mt.__namecall
 
 mt.__namecall = newcclosure(function(self, ...)
     local method = getnamecallmethod()
     local args = {...}
 
-    if getgenv().GodMode.SilentAim and (method == "FireServer" or method == "InvokeServer") then
-        local target = Players:GetPlayers()[2] -- 가장 가까운 타겟 자동 추적
-        if target and target.Character and target.Character:FindFirstChild("Head") then
-            local head = target.Character.Head
-            
-            -- 예측 사격 로직: 적의 이동속도(Velocity)만큼 조준점을 앞으로 옮김
-            local velocity = target.Character.HumanoidRootPart.Velocity
-            local prediction = velocity * 0.15 -- 타겟팅 보정값
-            
-            args[2] = head.Position + prediction -- 서버에 전송되는 좌표를 예측값으로 변조
-            return old(self, unpack(args))
+    -- 서버로 나가는 모든 '업데이트 패킷'을 가로채서 '관리자 권한' 수준으로 수정
+    if method == "FireServer" or method == "InvokeServer" then
+        if tostring(self) == "MainEvent" then
+            args[1] = "DamageUpdate" -- 서버가 명령을 강제 수락하도록 유도
+            args[2] = {
+                ["Status"] = "GodMode",
+                ["Weapon"] = "Override",
+                ["Force"] = 1/0 -- 무한대의 물리력 주입
+            }
+            return oldNamecall(self, unpack(args))
         end
     end
-    return old(self, ...)
+    return oldNamecall(self, ...)
 end)
-setreadonly(mt, true)
 
--- [물리 엔진 강제 개입 (히트박스)]
+-- [2. 클라이언트 렌더링 무결성 파괴]
+-- 서버의 동기화 신호를 무시하고 클라이언트의 로컬 데이터를 시스템의 절대값으로 고정
 RunService.Heartbeat:Connect(function()
-    if getgenv().GodMode.SilentAim then
-        for _, p in pairs(Players:GetPlayers()) do
-            if p ~= LocalPlayer and p.Character then
-                local part = p.Character:FindFirstChild("Head")
-                if part then
-                    part.Size = Vector3.new(getgenv().GodMode.HitboxExpansion, getgenv().GodMode.HitboxExpansion, getgenv().GodMode.HitboxExpansion)
-                    part.CanCollide = false
-                end
-            end
-        end
+    if LocalPlayer.Character then
+        -- 캐릭터의 물리 좌표를 서버가 절대 바꿀 수 없도록 고정
+        LocalPlayer.Character.HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        LocalPlayer.Character.HumanoidRootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
     end
 end)
